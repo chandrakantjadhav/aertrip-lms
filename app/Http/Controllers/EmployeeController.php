@@ -1,11 +1,11 @@
 <?php
 
 namespace App\Http\Controllers;
-
+use Illuminate\Support\Facades\DB;
 use App\Models\Employee;
 use App\Models\Department;
+use App\Models\Addresses;
 use Illuminate\Validation\Rule;
-
 use Illuminate\Http\Request;
 
 class EmployeeController extends Controller
@@ -28,6 +28,8 @@ class EmployeeController extends Controller
             'first_name' => $allData['first_name'] ?? null,
             'last_name' => $allData['first_name'] ?? null,
             'email' => $allData['email'] ?? null,
+            'salary' => $allData['salary'] ?? '10000',
+            'hire_date' => $allData['hire_date'] ?? date('Y-m-d'),
             'department_id' => $allData['department_id'] ?? null,
             'address_type' => $allData['address_type'] ?? 'primary',
             'employee_address_id' => $allData['employee_address_id'] ?? 0,
@@ -39,43 +41,46 @@ class EmployeeController extends Controller
         $rules = [
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
+            'address' => 'required|string|max:255',
+            'hire_date' => 'required|date',
             'email' => 'required|email|unique:employees,email',
             'department_id' => [
                 'required',
-                'exists:departments,id',
-                Rule::unique('employees')->where(function ($query) use ($request) {
-                    return $query->where('department_id', $request->input('department_id'));
-                }),
+                'exists:departments,id'
             ],
-            'address_type' => 'in:primary,secondary',
-            'address' => 'nullable|string'
+            'address_type' => 'in:primary,secondary'
         ];
         
         // Custom error messages
         $messages = [
             'first_name.required' => 'First name field is required.',
             'last_name.required' => 'Last name field is required.',
+            'hire_date.required' => 'Hire date is required.',
+            'address.required' => 'Primary address is required.',
             'department_id.required' => 'Pass department id basis your allotment as mentioned like 1 for HR,2-HOD,3-IT,4-FINANCE',
         ];
         
-        // If department_id is provided, check its existence
-        if ($request->has('department_id')) {
-            Department::findOrFail($request->input('department_id'));
+        $department = Department::find($request->input('department_id'));
+
+        if (!$department) {
+            // Handle the case where the department doesn't exist
+            return response()->json(['error' => 'Department does not exist. please select existing'], 404);
         }
-        
+       
         // If email is provided, check for existence
-        if ($request->has('email')) {
-            Employee::where('email', $request->input('email'))->firstOrFail();
+        $check_employee = Employee::where('email', '=', $request->input('email'))->get();
+        if (!$check_employee->isEmpty()) {
+            // Handle the case where the department doesn't exist
+            return response()->json(['error' => 'Employee already exist'], 404);
         }
-        dd('4523266754');
         if ($request->has('address')) {
             // Create a new address
-            $address = Address::create([
+            $address = Addresses::create([
                 'address' => $dbFields['address'],
                 'address_type' => $dbFields['address_type'],
                 'employee_id' => 0
             ]);
-            $dbFields['employee_address_id'] = $address->id;
+            $dbFields['employee_address_id'] = $address->id;      
             
         }
         
@@ -87,10 +92,14 @@ class EmployeeController extends Controller
             return response()->json(['error' => $validator->errors()], 422);
         }
 
-        $employee = Employee::create($request->all());
+        unset($dbFields['address_type']);
+        unset($dbFields['address']);
+        // dd($dbFields);
+        $employee = Employee::create($dbFields);
         
         // Update the employee's address_id with the address ID
-        $address->update(['employee_id' => $employee->id]);
+        // $address->update(['employee_id' => $employee->id]);
+        DB::table('employee_addresses')->where('id',$address->id)->update(['employee_id' => $employee->id]);
 
         return response()->json($employee, 201);
     }
